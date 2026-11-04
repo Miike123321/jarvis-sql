@@ -62,3 +62,8 @@ python -m streamlit run streamlit_app.py
   выдаёт одноразовое подтверждение, действительное пять минут.
 - Для подтверждения разрешены только одиночные `CREATE TABLE`, `CREATE VIEW` и
   `CREATE INDEX`; `DROP`, `ALTER`, `UPDATE`, `DELETE` и `INSERT` не выполняются.
+
+
+
+
+

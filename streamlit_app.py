@@ -257,3 +257,8 @@ if st.session_state["pending_ddl"]:
             {"role": "assistant", "content": "Операция отменена. База данных не изменена."}
         )
         st.rerun()
+
+
+
+
+
