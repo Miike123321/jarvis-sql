@@ -75,6 +75,7 @@ class GeminiChatTests(unittest.TestCase):
                 factory.return_value = None
                 del client
 
+            self.assertIn("не более 5 пунктов", chat.system_instruction)
             self.assertEqual(chat.send_message("first").text, "OK")
             self.assertEqual(chat.send_message("second").text, "OK")
             self.assertEqual(len(requests), 2)
