@@ -87,6 +87,15 @@ class ModelConfig:
         return result
 
 
+@dataclass
+class SupersetMCPConfig:
+    """Connection settings for an Apache Superset MCP server."""
+
+    enabled: bool = False
+    endpoint_url: str = ""
+    bearer_token: str = ""
+
+
 class OmnirouteClient:
     """Client for omniroute API to fetch available models."""
 
@@ -143,6 +152,7 @@ class ConfigManager:
     def __init__(self):
         self._db_config: Optional[DatabaseConfig] = None
         self._model_config: Optional[ModelConfig] = None
+        self._superset_mcp_config: Optional[SupersetMCPConfig] = None
         self._load_from_file()
 
     def _load_from_file(self) -> None:
@@ -171,6 +181,25 @@ class ConfigManager:
                         base_url=m.get("base_url"),
                     )
 
+                if "superset_mcp" in data:
+                    superset = data["superset_mcp"]
+                    if not isinstance(superset, dict):
+                        raise ValueError("Invalid Superset MCP configuration.")
+                    enabled = superset.get("enabled", False)
+                    endpoint_url = superset.get("endpoint_url", "")
+                    bearer_token = superset.get("bearer_token", "")
+                    if (
+                        not isinstance(enabled, bool)
+                        or not isinstance(endpoint_url, str)
+                        or not isinstance(bearer_token, str)
+                    ):
+                        raise ValueError("Invalid Superset MCP configuration.")
+                    self._superset_mcp_config = SupersetMCPConfig(
+                        enabled=enabled,
+                        endpoint_url=endpoint_url,
+                        bearer_token=bearer_token,
+                    )
+
                 logger.info("Configuration loaded from file")
             except Exception as e:
                 logger.error(f"Failed to load configuration file: {e}")
@@ -196,6 +225,13 @@ class ConfigManager:
             }
             if self._model_config.base_url:
                 data["model"]["base_url"] = self._model_config.base_url
+
+        if self._superset_mcp_config:
+            data["superset_mcp"] = {
+                "enabled": self._superset_mcp_config.enabled,
+                "endpoint_url": self._superset_mcp_config.endpoint_url,
+                "bearer_token": self._superset_mcp_config.bearer_token,
+            }
 
         temporary_file = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
         try:
@@ -327,6 +363,28 @@ class ConfigManager:
             self._model_config = previous_config
             raise
         logger.info(f"Model config updated: {config.to_dict()}")
+
+    def get_superset_mcp_config(self) -> SupersetMCPConfig:
+        """Get Superset MCP settings, preferring saved values over environment."""
+        if self._superset_mcp_config:
+            return self._superset_mcp_config
+
+        return SupersetMCPConfig(
+            enabled=os.getenv("SUPERSET_MCP_ENABLED", "false").strip().lower()
+            == "true",
+            endpoint_url=os.getenv("SUPERSET_MCP_URL", "").strip(),
+            bearer_token=os.getenv("SUPERSET_MCP_BEARER_TOKEN", "").strip(),
+        )
+
+    def set_superset_mcp_config(self, config: SupersetMCPConfig) -> None:
+        """Set and persist Superset MCP settings."""
+        previous_config = self._superset_mcp_config
+        self._superset_mcp_config = config
+        try:
+            self._save_to_file()
+        except Exception:
+            self._superset_mcp_config = previous_config
+            raise
 
     def get_omniroute_client(self) -> Optional[OmnirouteClient]:
         """Get omniroute client if configured."""

@@ -17,10 +17,13 @@ from config_manager import (
     DatabaseConfig,
     ModelConfig,
     PLACEHOLDER_API_KEY,
+    SupersetMCPConfig,
     normalize_omniroute_base_url,
 )
 from jarvis_backend import (
     GeminiChat,
+    MAX_GEMINI_TOOL_ROUNDS,
+    MAX_QUERY_RESULT_CHARS,
     OmnirouteChat,
     create_chat,
     execute_ddl_statement,
@@ -60,7 +63,10 @@ class GeminiChatTests(unittest.TestCase):
             provider="gemini", model_name="gemini-2.5-flash", api_key="test-key"
         )
         with patch("jarvis_backend.config_manager.get_model_config", return_value=model):
-            with patch("jarvis_backend.genai.Client", return_value=client) as factory:
+            with patch(
+                "jarvis_backend.config_manager.get_superset_mcp_config",
+                return_value=SupersetMCPConfig(),
+            ), patch("jarvis_backend.genai.Client", return_value=client) as factory:
                 chat = create_chat()
                 factory.return_value = None
                 del client
@@ -78,7 +84,7 @@ class GeminiChatTests(unittest.TestCase):
 
         def respond(request):
             requests.append(json.loads(request.content))
-            if len(requests) <= 25:
+            if len(requests) <= MAX_GEMINI_TOOL_ROUNDS:
                 part = {
                     "functionCall": {
                         "name": "execute_read_only_query",
@@ -112,7 +118,7 @@ class GeminiChatTests(unittest.TestCase):
 
         self.assertIn("частич", response.text.lower())
         self.assertEqual(follow_up.text, "Получены частичные результаты.")
-        self.assertEqual(len(requests), 27)
+        self.assertEqual(len(requests), MAX_GEMINI_TOOL_ROUNDS + 2)
         self.assertEqual(
             requests[-2]["toolConfig"]["functionCallingConfig"]["mode"], "NONE"
         )
@@ -211,6 +217,27 @@ class ReadOnlyQueryTests(unittest.TestCase):
 
         self.assertIn("отклонён", result)
         connect.assert_not_called()
+
+    @patch("jarvis_backend.database_config", return_value={})
+    @patch("jarvis_backend.pymssql.connect")
+    def test_query_result_is_capped_before_being_sent_to_the_model(
+        self, connect, _database_config
+    ):
+        cursor = MagicMock()
+        cursor.description = [("value",)]
+        cursor.fetchmany.return_value = [("x" * (MAX_QUERY_RESULT_CHARS + 1),)]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+        connect.return_value = connection
+
+        result = json.loads(execute_read_only_query("SELECT value FROM data"))
+
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["data"], [])
+        self.assertLessEqual(
+            len(json.dumps(result, ensure_ascii=False)), MAX_QUERY_RESULT_CHARS
+        )
+        _database_config.assert_called_once_with()
 
 
 class OmnirouteToolTests(unittest.TestCase):
