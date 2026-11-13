@@ -9,7 +9,9 @@ import httpx
 from fastapi import WebSocketDisconnect
 from google import genai
 from google.genai import types
+from streamlit.testing.v1 import AppTest
 
+import config_manager as config_manager_module
 from config_manager import (
     ConfigManager,
     DatabaseConfig,
@@ -26,6 +28,7 @@ from jarvis_backend import (
     is_approved_ddl,
     is_read_only_select,
     test_model_connection,
+    config_manager as app_config_manager,
     websocket_endpoint,
 )
 
@@ -363,6 +366,36 @@ class ConfigurationTests(unittest.TestCase):
         if model is None:
             self.fail("A valid Gemini configuration should be loaded")
         self.assertEqual(model.provider, "gemini")
+
+
+class StreamlitGeminiKeyTests(unittest.TestCase):
+    def test_password_form_saves_gemini_key(self):
+        app_path = Path(__file__).resolve().parents[1] / "streamlit_app.py"
+        with tempfile.TemporaryDirectory() as directory:
+            config_file = Path(directory) / "config.json"
+            with patch.object(config_manager_module, "CONFIG_FILE", config_file):
+                with patch.dict(os.environ, {"ALLOW_DB_CONFIG_UI": "true"}, clear=True):
+                    with patch.object(app_config_manager, "_db_config", None), \
+                         patch.object(app_config_manager, "_model_config", None), \
+                         patch.object(app_config_manager, "set_model_config") as save_model:
+                        app = AppTest.from_file(str(app_path)).run()
+                        self.assertFalse(app.exception)
+
+                        app.radio(key="model_provider_select").set_value("gemini").run()
+                        api_key_input = app.text_input(key="gemini_api_key_input")
+                        api_key_input.set_value("test-gemini-key")
+                        save_button = next(
+                            button
+                            for button in app.button
+                            if button.label == "Сохранить ключ Gemini"
+                        )
+                        save_button.click().run()
+
+                        save_model.assert_called_once()
+                        saved_config = save_model.call_args.args[0]
+                        self.assertEqual(saved_config.provider, "gemini")
+                        self.assertEqual(saved_config.api_key, "test-gemini-key")
+                        self.assertFalse(app.exception)
 
 
 if __name__ == "__main__":

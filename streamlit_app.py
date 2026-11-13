@@ -249,23 +249,44 @@ def show_config_ui() -> None:
 
         else:  # gemini provider
             st.caption("💎 Google Gemini API")
-            gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
             if current_model and current_model.provider == "gemini":
                 st.success(f"✅ Используется: **{current_model.model_name}**")
-            elif gemini_api_key and gemini_api_key != PLACEHOLDER_API_KEY:
-                new_model_config = ModelConfig(
-                    provider="gemini",
-                    model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
-                    api_key=gemini_api_key,
+
+            with st.form("gemini_api_key_form", clear_on_submit=True):
+                gemini_api_key = st.text_input(
+                    "Gemini API-ключ",
+                    type="password",
+                    placeholder="Вставьте ключ Google AI Studio",
+                    key="gemini_api_key_input",
                 )
-                try:
-                    config_manager.set_model_config(new_model_config)
-                    reset_model_session()
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"❌ Не удалось сохранить модель: {exc}")
-            else:
-                st.warning("⚠️ Настройте GEMINI_API_KEY в файле .env.")
+                save_gemini_key = st.form_submit_button(
+                    "Сохранить ключ Gemini",
+                    use_container_width=True,
+                )
+
+            if save_gemini_key:
+                gemini_api_key = gemini_api_key.strip()
+                if not gemini_api_key or gemini_api_key == PLACEHOLDER_API_KEY:
+                    st.error("❌ Введите действительный Gemini API-ключ.")
+                else:
+                    model_name = (
+                        current_model.model_name
+                        if current_model and current_model.provider == "gemini"
+                        else os.getenv("GEMINI_MODEL", "").strip() or GEMINI_MODEL
+                    )
+                    new_model_config = ModelConfig(
+                        provider="gemini",
+                        model_name=model_name,
+                        api_key=gemini_api_key,
+                    )
+                    try:
+                        config_manager.set_model_config(new_model_config)
+                        reset_model_session()
+                    except Exception as exc:
+                        st.error(f"❌ Не удалось сохранить модель: {exc}")
+                    else:
+                        st.success("✅ Gemini API-ключ сохранён.")
+                        st.rerun()
 
 
 initialize_session()
