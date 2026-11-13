@@ -298,6 +298,10 @@
     }
 
     function updateWaitingIndicator() {
+      sendButton.disabled =
+        socket.readyState !== WebSocket.OPEN ||
+        pendingResponses > 0 ||
+        pendingSql !== null;
       waitingIndicator?.remove();
       waitingIndicator = null;
       if (pendingResponses === 0) return;
@@ -339,6 +343,9 @@
       status.textContent = "Соединение закрыто";
       status.classList.remove("connected");
       pendingResponses = 0;
+      pendingSql = null;
+      pendingDdlToken = null;
+      if (ddlDialog.open) ddlDialog.close();
       updateWaitingIndicator();
       sendButton.disabled = true;
       addMessage("Соединение с сервером закрыто. Обновите страницу, чтобы подключиться снова.", "system");
@@ -377,13 +384,19 @@
         pendingDdlToken = payload.ddl_token;
         sqlPreview.textContent = pendingSql;
         ddlDialog.showModal();
+        updateWaitingIndicator();
       }
     });
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const text = input.value.trim();
-      if (!text || socket.readyState !== WebSocket.OPEN) return;
+      if (
+        !text ||
+        socket.readyState !== WebSocket.OPEN ||
+        pendingResponses > 0 ||
+        pendingSql !== null
+      ) return;
       addMessage(text, "user");
       socket.send(JSON.stringify({ type: "user_message", text }));
       pendingResponses += 1;
@@ -439,6 +452,10 @@
 
     document.getElementById("confirm-ddl").addEventListener("click", () => respondToDdl(true));
     document.getElementById("cancel-ddl").addEventListener("click", () => respondToDdl(false));
+    ddlDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      respondToDdl(false);
+    });
     sendButton.disabled = true;
   </script>
 </body>
