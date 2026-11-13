@@ -9,6 +9,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+# AppTest may run the app in an isolated script context.
+os.environ["JARVIS_DISABLE_SUPERSET_MCP"] = "true"
+
 import httpx
 from streamlit.testing.v1 import AppTest
 
@@ -58,10 +61,28 @@ class SupersetConfigTests(unittest.TestCase):
         self.assertEqual(config.endpoint_url, "")
         self.assertEqual(config.bearer_token, "")
 
+    def test_environment_kill_switch_disables_saved_configuration(self):
+        manager = ConfigManager()
+        manager._superset_mcp_config = SupersetMCPConfig(
+            enabled=True,
+            endpoint_url="https://superset.example/mcp-endpoint",
+            bearer_token="test-token",
+        )
+        with patch.dict(
+            os.environ, {"JARVIS_DISABLE_SUPERSET_MCP": "true"}, clear=True
+        ):
+            config = manager.get_superset_mcp_config()
+
+        self.assertFalse(config.enabled)
+        self.assertEqual(config.endpoint_url, "")
+        self.assertEqual(config.bearer_token, "")
+
     def test_saved_configuration_has_restricted_permissions_and_round_trips(self):
         with tempfile.TemporaryDirectory() as directory:
             config_file = Path(directory) / ".jarvis_config.json"
-            with patch("config_manager.CONFIG_FILE", config_file):
+            with patch("config_manager.CONFIG_FILE", config_file), patch.dict(
+                os.environ, {}, clear=True
+            ):
                 manager = ConfigManager()
                 manager.set_superset_mcp_config(
                     SupersetMCPConfig(

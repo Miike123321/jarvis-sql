@@ -5,6 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+# AppTest may run the app in an isolated script context.
+os.environ["JARVIS_DISABLE_SUPERSET_MCP"] = "true"
+
 import httpx
 from fastapi import WebSocketDisconnect
 from google import genai
@@ -22,6 +25,7 @@ from config_manager import (
 )
 from jarvis_backend import (
     GeminiChat,
+    MAX_GEMINI_OUTPUT_TOKENS,
     MAX_GEMINI_TOOL_ROUNDS,
     MAX_QUERY_RESULT_CHARS,
     OmnirouteChat,
@@ -145,6 +149,72 @@ class GeminiChatTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "SAFETY"):
                 chat.send_message("Запрос")
         self.assertEqual(chat.chat.get_history(), [])
+        chat.close()
+
+    def test_max_tokens_error_explains_the_gemini_output_limit(self):
+        client = genai.Client(
+            api_key="test-key",
+            http_options=types.HttpOptions(
+                client_args={
+                    "transport": httpx.MockTransport(
+                        lambda request: httpx.Response(
+                            200,
+                            json={
+                                "candidates": [
+                                    {
+                                        "content": {
+                                            "role": "model",
+                                            "parts": [],
+                                        },
+                                        "finishReason": "MAX_TOKENS",
+                                    }
+                                ]
+                            },
+                        )
+                    )
+                }
+            ),
+        )
+        with patch("jarvis_backend.genai.Client", return_value=client):
+            chat = GeminiChat("gemini-2.5-flash", "test-key")
+            self.assertEqual(chat.config.max_output_tokens, MAX_GEMINI_OUTPUT_TOKENS)
+            with self.assertRaisesRegex(
+                RuntimeError,
+                f"исчерпан лимит {MAX_GEMINI_OUTPUT_TOKENS} выходных токенов",
+            ):
+                chat.send_message("Ответь на вопрос.")
+        chat.close()
+
+    def test_partial_text_with_max_tokens_is_marked_incomplete(self):
+        client = genai.Client(
+            api_key="test-key",
+            http_options=types.HttpOptions(
+                client_args={
+                    "transport": httpx.MockTransport(
+                        lambda request: httpx.Response(
+                            200,
+                            json={
+                                "candidates": [
+                                    {
+                                        "content": {
+                                            "role": "model",
+                                            "parts": [{"text": "Частичный ответ."}],
+                                        },
+                                        "finishReason": "MAX_TOKENS",
+                                    }
+                                ]
+                            },
+                        )
+                    )
+                }
+            ),
+        )
+        with patch("jarvis_backend.genai.Client", return_value=client):
+            chat = GeminiChat("gemini-2.5-flash", "test-key")
+            response = chat.send_message("Ответь на вопрос.")
+
+        self.assertIn("Частичный ответ.", response.text)
+        self.assertIn("может быть неполным", response.text)
         chat.close()
 
     def test_connection_test_reports_gemini_block_reason(self):

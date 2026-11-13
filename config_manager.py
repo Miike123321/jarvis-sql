@@ -366,6 +366,8 @@ class ConfigManager:
 
     def get_superset_mcp_config(self) -> SupersetMCPConfig:
         """Get Superset MCP settings, preferring saved values over environment."""
+        if os.getenv("JARVIS_DISABLE_SUPERSET_MCP", "").strip().lower() == "true":
+            return SupersetMCPConfig()
         if self._superset_mcp_config:
             return self._superset_mcp_config
 

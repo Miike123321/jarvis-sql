@@ -45,7 +45,8 @@ MAX_MESSAGE_LENGTH = 6000
 MAX_QUERY_ROWS = 100
 MAX_QUERY_RESULT_CHARS = 12000
 DDL_CONFIRMATION_TTL_SECONDS = 300
-MAX_OUTPUT_TOKENS = 1200
+MAX_GEMINI_OUTPUT_TOKENS = 2048
+MAX_OMNIROUTE_OUTPUT_TOKENS = 1200
 MAX_OMNIROUTE_TOOL_ROUNDS = 3
 MAX_OMNIROUTE_TOOL_CALLS = 4
 MAX_OMNIROUTE_HISTORY_TURNS = 6
@@ -536,7 +537,7 @@ class GeminiChat:
             tools=tools,
             system_instruction=self.system_instruction,
             temperature=0.1,
-            max_output_tokens=MAX_OUTPUT_TOKENS,
+            max_output_tokens=MAX_GEMINI_OUTPUT_TOKENS,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(
                 maximum_remote_calls=max_remote_calls,
             ),
@@ -554,7 +555,13 @@ class GeminiChat:
         if response.prompt_feedback and response.prompt_feedback.block_reason:
             details.append(f"блокировка: {response.prompt_feedback.block_reason.value}")
         if response.candidates and response.candidates[0].finish_reason:
-            details.append(f"завершение: {response.candidates[0].finish_reason.value}")
+            finish_reason = response.candidates[0].finish_reason.value
+            details.append(f"завершение: {finish_reason}")
+            if finish_reason == "MAX_TOKENS":
+                details.append(
+                    f"исчерпан лимит {MAX_GEMINI_OUTPUT_TOKENS} выходных токенов; "
+                    "попросите более краткий ответ"
+                )
         if response.function_calls:
             details.append("модель вернула вызов инструмента без итогового ответа")
         reason = "; ".join(details) if details else "причина не указана API"
@@ -610,6 +617,18 @@ class GeminiChat:
             except Exception:
                 self._restore_history(previous_history)
                 raise
+
+        if (
+            response.text
+            and response.candidates
+            and response.candidates[0].finish_reason
+            and response.candidates[0].finish_reason.value == "MAX_TOKENS"
+        ):
+            return ChatResponse(
+                "⚠️ Ответ достиг лимита генерации и может быть неполным. "
+                "Попросите продолжить или ответить кратко.\n\n"
+                + response.text
+            )
 
         if not response.text or response.function_calls:
             self._restore_history(previous_history)
@@ -667,7 +686,7 @@ class OmnirouteChat:
                     *conversation,
                 ],
                 "temperature": 0.1,
-                "max_tokens": MAX_OUTPUT_TOKENS,
+                "max_tokens": MAX_OMNIROUTE_OUTPUT_TOKENS,
                 "parallel_tool_calls": False,
                 "stream": False,
                 "tools": self.tools,
